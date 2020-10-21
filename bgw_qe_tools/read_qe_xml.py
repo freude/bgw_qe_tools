@@ -289,7 +289,7 @@ def traj_from_qe_xml(fileobj, index=-1, results_required=True):
     return atoms, input_parameters, atoms_list
 
 
-def qe_xml_to_kgrid(file_name, kpoints=None, koffsets=None, q_shifts=None):
+def qe_xml_to_kgrid(file_name, k_points=None, k_offsets=None, q_shifts=None):
     atoms, input_parameters, _ = traj_from_qe_xml(file_name)
     kgrid = []
 
@@ -356,7 +356,7 @@ def qe_xml_to_kgrid(file_name, kpoints=None, koffsets=None, q_shifts=None):
     return '\n'.join(kgrid)
 
 
-def make_kgrids(file_name, kpoints=None, koffsets=None, q_shifts=None):
+def make_kgrids(file_name, k_points=None, k_offsets=None, q_shifts=None):
 
     kgrid = qe_xml_to_kgrid(file_name, k_points=k_points, k_offsets=k_offsets)
     qgrid = qe_xml_to_kgrid(file_name, k_points=k_points, k_offsets=k_offsets, q_shifts=q_shifts)
@@ -368,9 +368,11 @@ def make_kgrids(file_name, kpoints=None, koffsets=None, q_shifts=None):
         text_file.write(qgrid)
 
 
-def make_pw2bgw(filename, outdir, prefix, real_or_complex=2):
-    with open(filename, "r") as text_file:
+def make_pw2bgw(kin, kout, outdir, prefix, min_band=None, max_band=None, real_or_complex=2):
+    with open(kin, "r") as text_file:
         text = text_file.readlines()
+
+    flag = abs(float(text[2].split()[0])) + abs(float(text[2].split()[1])) + abs(float(text[2].split()[2])) == 0.0
 
     ans = []
     ans.append('&INPUT_PW2BGW')
@@ -382,24 +384,56 @@ def make_pw2bgw(filename, outdir, prefix, real_or_complex=2):
 
     ans.append('real_or_complex = ' + str(real_or_complex))
     ans.append('wfng_flag = ' + '.true.')
-    ans.append('wfng_file = \'WFN\'')
+
+    if flag:
+        ans.append('wfng_file = \'WFN\'')
+    else:
+        ans.append('wfng_file = \'WFNq\'')
+
     ans.append('wfng_kgrid = ' + '.true.')
 
     ans.append('wfng_nk1 = ' + text[0].split()[0])
     ans.append('wfng_nk2 = ' + text[0].split()[1])
     ans.append('wfng_nk3 = ' + text[0].split()[2])
 
-    with open('k_grid.out', "r") as text_file:
-        text = text_file.readlines()
+    with open(kout, "r") as text_file:
+        kpoints = text_file.readlines()
 
-    ans.append('wfng_dk1 = ' + text[1].split()[0])
-    ans.append('wfng_dk2 = ' + text[1].split()[1])
-    ans.append('wfng_dk3 = ' + text[1].split()[2])
+    steps_x = sorted(list(set([float(item.split()[0]) for item in kpoints[2:]])))
+    steps_y = sorted(list(set([float(item.split()[1]) for item in kpoints[2:]])))
+    steps_z = sorted(list(set([float(item.split()[2]) for item in kpoints[2:]])))
+
+    steps_x = steps_x + [steps_x[0]]
+    steps_y = steps_y + [steps_y[0]]
+    steps_z = steps_z + [steps_z[0]]
+
+    steps_x = steps_x[1] - steps_x[0]
+    steps_y = steps_y[1] - steps_y[0]
+    steps_z = steps_z[1] - steps_z[0]
+
+    try:
+        dk1 = float(text[2].split()[0]) / steps_x
+    except ZeroDivisionError:
+        dk1 = 0.0
+
+    try:
+        dk2 = float(text[2].split()[1]) / steps_y
+    except ZeroDivisionError:
+        dk2 = 0.0
+
+    try:
+        dk3 = float(text[2].split()[2]) / steps_z
+    except ZeroDivisionError:
+        dk3 = 0.0
+
+    ans.append('wfng_dk1 = ' + str(dk1))
+    ans.append('wfng_dk2 = ' + str(dk2))
+    ans.append('wfng_dk3 = ' + str(dk3))
 
     # -------------------------------------------------
 
-    if abs(int(text[1].split()[0])) + abs(int(text[1].split()[0])) + abs(int(text[1].split()[0])) > 0.0:
-
+    if flag:
+        
         ans.append('rhog_flag = ' + '.true.')
         ans.append('rhog_file = \'' + 'RHO' + '\'')
 
@@ -413,8 +447,8 @@ def make_pw2bgw(filename, outdir, prefix, real_or_complex=2):
         ans.append('vxc_file = \'' + 'vxc.dat' + '\'')
 
         ans.append('vxc_integral = \'g\'')
-        ans.append('vxc_diag_nmin = ' + '180')
-        ans.append('vxc_diag_nmax = ' + '220')
+        ans.append('vxc_diag_nmin = ' + str(min_band))
+        ans.append('vxc_diag_nmax = ' + str(max_band))
 
         ans.append('vxc_offdiag_nmin = ' + '0')
         ans.append('vxc_offdiag_nmax = ' + '0')
@@ -424,7 +458,8 @@ def make_pw2bgw(filename, outdir, prefix, real_or_complex=2):
     ans.append('/')
     aaa = '\n'.join(ans)
 
-    return aaa
+    with open('pw2bgw.in', 'w') as fd:
+        fd.write(aaa)
 
 
 def dict_retyping(dic):
@@ -494,13 +529,20 @@ def _parsed_to_input_data(parsed_data):
     return input_data
 
 
-def make_input_bands(xml_file, kpoints=None, koffsets=None):
+def make_input_bands(xml_file, nbands, kpoints=None, koffsets=None):
 
     atoms_in, data_in = parse_xml_input(xml_file)
     atoms_out, data_out = parse_xml_input(xml_file)
-    output_file = 'espresso_40_5_4_1.pwi'
-
     input_data = _parsed_to_input_data(data_in)
+
+    input_data['system']['nbnd'] = nbands
+
+    flag = False
+
+    if isinstance(kpoints, str):
+        kpoints_file = kpoints
+        kpoints = None
+        flag = True
 
     if kpoints is None:
         kpoints = tuple(data_in['k_points'][:3])
@@ -508,6 +550,7 @@ def make_input_bands(xml_file, kpoints=None, koffsets=None):
     if koffsets is None:
         koffsets = tuple(data_in['k_points'][3:])
 
+    output_file = 'espresso_' + input_data['control']['prefix'] + '.pwi'
     with open(output_file, 'w') as fd:
         espresso.write_espresso_in(fd, atoms_in,
                                    input_data=input_data,
@@ -518,6 +561,34 @@ def make_input_bands(xml_file, kpoints=None, koffsets=None):
 
     outdir = data_in['control_variables']['outdir']
     prefix = data_in['control_variables']['prefix']
+
+    if flag:
+        with open(kpoints_file, 'r') as fd:
+            kpoints = fd.readlines()
+
+        with open(output_file, 'r') as fd:
+            espresso_file = fd.readlines()
+
+        ind = -1
+        for j, line in enumerate(espresso_file): 
+           if line.lower().startswith('k_points'):
+               ind = j
+               continue
+        print(espresso_file)
+        print(len(espresso_file))
+        print(ind)
+        if ind >= 0:
+            del espresso_file[ind+1]
+            del espresso_file[ind]
+
+        espresso_file += '\n' 
+        espresso_file += kpoints 
+        espresso_file = ''.join(espresso_file)
+
+        print(espresso_file)
+
+        with open(output_file, 'w') as fd:
+           fd.write(espresso_file)
 
     return outdir, prefix
 
