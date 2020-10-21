@@ -50,12 +50,20 @@ def _parse_xml(input_tag):
     for item in input_tag.find('atomic_species'):
         parsed_data['atomic_species'][item.items()[0][1]] = item.find('pseudo_file').text
 
-    if input_tag.find('k_points_IBZ').find('monkhorst_pack') is not None:
-        parsed_data['k_points'] = [int(item[1]) for item in input_tag.find('k_points_IBZ').find('monkhorst_pack').items()]
+    if input_tag.find('k_points_IBZ') is not None:
+        if input_tag.find('k_points_IBZ').find('monkhorst_pack') is not None:
+            parsed_data['k_points'] = [int(item[1]) for item in input_tag.find('k_points_IBZ').find('monkhorst_pack').items()]
+
+    if input_tag.find('band_structure') is not None:
+        if input_tag.find('band_structure').find('starting_k_points').find('monkhorst_pack') is not None:
+            parsed_data['k_points'] = [int(item[1]) for item in input_tag.find('band_structure').find('starting_k_points').find('monkhorst_pack').items()]
 
     if 'electric_field' in parsed_data:
         for item in input_tag.find('electric_field'):
             parsed_data['electric_field'][item.tag] = item.text
+
+    if input_tag.find('basis_set') is not None:
+        parsed_data['fft_grid'] = [int(item[1]) for item in input_tag.find('basis_set').find('fft_grid').items()]
 
     return atoms, parsed_data
 
@@ -290,7 +298,8 @@ def traj_from_qe_xml(fileobj, index=-1, results_required=True):
 
 
 def qe_xml_to_kgrid(file_name, k_points=None, k_offsets=None, q_shifts=None):
-    atoms, input_parameters, _ = traj_from_qe_xml(file_name)
+
+    atoms, input_parameters = parse_xml_output(file_name)
     kgrid = []
 
     # -------------------------------------------------------------------------
@@ -353,13 +362,13 @@ def qe_xml_to_kgrid(file_name, k_points=None, k_offsets=None, q_shifts=None):
     kgrid.append('.false.')
     kgrid.append('.false.')
 
-    return '\n'.join(kgrid)
+    return '\n'.join(kgrid), int(input_parameters['band_structure']['nbnd'])
 
 
 def make_kgrids(file_name, k_points=None, k_offsets=None, q_shifts=None):
 
-    kgrid = qe_xml_to_kgrid(file_name, k_points=k_points, k_offsets=k_offsets)
-    qgrid = qe_xml_to_kgrid(file_name, k_points=k_points, k_offsets=k_offsets, q_shifts=q_shifts)
+    kgrid, nbnd = qe_xml_to_kgrid(file_name, k_points=k_points, k_offsets=k_offsets)
+    qgrid, nbnd = qe_xml_to_kgrid(file_name, k_points=k_points, k_offsets=k_offsets, q_shifts=q_shifts)
 
     with open("kgrid.in", "w") as text_file:
         text_file.write(kgrid)
@@ -367,6 +376,7 @@ def make_kgrids(file_name, k_points=None, k_offsets=None, q_shifts=None):
     with open("kgrid_q.in", "w") as text_file:
         text_file.write(qgrid)
 
+    return nbnd
 
 def make_pw2bgw(kin, kout, outdir, prefix, min_band=None, max_band=None, real_or_complex=2):
     with open(kin, "r") as text_file:
@@ -532,7 +542,7 @@ def _parsed_to_input_data(parsed_data):
 def make_input_bands(xml_file, nbands, kpoints=None, koffsets=None):
 
     atoms_in, data_in = parse_xml_input(xml_file)
-    atoms_out, data_out = parse_xml_input(xml_file)
+    atoms_out, data_out = parse_xml_output(xml_file)
     input_data = _parsed_to_input_data(data_in)
 
     input_data['system']['nbnd'] = nbands
@@ -598,9 +608,10 @@ if __name__ == '__main__':
     # file_name = '/home/mk/tetracene_opt2.xml'
     xml_file_name = '/home/mk//si_slab.xml'
 
-    # make_kgrids(xml_file_name, k_points=[5, 4, 1], q_shifts=[0.001, 0.0, 0.0])
-    outdir, prefix = make_input_bands(xml_file_name)
-    make_pw2bgw(outdir, prefix)
+    n = make_kgrids(xml_file_name, k_points=[5, 4, 1], q_shifts=[0.001, 0.0, 0.0])
+    print(n)
+    # outdir, prefix = make_input_bands(xml_file_name, 300)
+    # make_pw2bgw(outdir, prefix)
 
 
     # kgrids_to_pw2bgw('kgrid.in', 'si_slab_70_5_4_1')
