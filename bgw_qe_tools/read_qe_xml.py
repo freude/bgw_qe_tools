@@ -14,6 +14,12 @@ units = create_units('2006')
 # atoms = cif.read_cif('/home/mk/tetracene/tetracene.cif', None)
 
 
+def xstr(s):
+    if s is None:
+        return ''
+    return str(s)
+
+
 def get_atoms_from_xml(xml_elem):
     atoms = []
 
@@ -328,7 +334,10 @@ def qe_xml_to_kgrid(file_name, k_points=None, k_offsets=None, q_shifts=None):
     fft_grid = input_parameters['fft_grid']
 
     # k-grid parameters
-    k_grid = input_parameters['k_points']
+    if 'k_points' in input_parameters:
+        k_grid = input_parameters['k_points']
+    else:
+        k_grid = None
 
     # -------------------------------------------------------------------------
     # ------------------------ form the input files ---------------------------
@@ -340,7 +349,7 @@ def qe_xml_to_kgrid(file_name, k_points=None, k_offsets=None, q_shifts=None):
         kgrid.append(' '.join(map(str, k_grid[:3])))
 
     if k_offsets is not None:
-        kgrid.append(' '.join(map(str, k_points)))
+        kgrid.append(' '.join(map(str, k_offsets)))
     else:
         kgrid.append(' '.join(map(str, 0.5 * np.array(k_grid[3:]))))
 
@@ -388,9 +397,9 @@ def make_pw2bgw(kin, kout, outdir, prefix, min_band=None, max_band=None, real_or
     ans.append('&INPUT_PW2BGW')
     ans.append('prefix = \'' + prefix + '\'')
     if outdir is not None:
-        ans.append('outdit = \'' + outdir + '\'')
+        ans.append('outdir = \'' + outdir + '\'')
     else:
-        ans.append('outdit = \'tmp\'')
+        ans.append('outdir = \'tmp\'')
 
     ans.append('real_or_complex = ' + str(real_or_complex))
     ans.append('wfng_flag = ' + '.true.')
@@ -494,35 +503,25 @@ def dict_retyping(dic):
 def _parsed_to_input_data(parsed_data):
 
     input_data = {'control': {}, 'system': {}, 'electrons': {}}
-
-    # input_data = {'control': {'calculation': 'bands',
-    #                           'restart_mode': 'from_scratch',
-    #                           'tstress': True,
-    #                           'tprnfor': True,
-    #                           'outdir': 'tmp',
-    #                           'prefix': 'slab_si_tc',
-    #                           'forc_conv_thr': 1e-5,
-    #                           'nstep': 100,
-    #                           'tefield': True,
-    #                           'dipfield': True
-    #                           },
-    #               'system': {'ecutwfc': 40.0,
-    #                          'input_dft': 'vdw-df2-c09',
-    #                          'edir': 3,
-    #                          'emaxpos': 0.95,
-    #                          'eopreg': 0.03,
-    #                          'eamp': 0
-    #                          },
-    #               'electrons': {'mixing_beta': 0.1,
-    #                             'conv_thr': 1e-8},
-    #               'ions': {'ion_dynamics': 'bfgs'}}
-
     input_data['control'] = dict_retyping(parsed_data['control_variables'])
-
-    input_data['control']['calculation'] = 'bands'
+    input_data['control']['calculation'] = 'scf'
     input_data['control']['restart_mode'] = 'from_scratch'
+    input_data['control']['forc_conv_thr'] = 2 * input_data['control']['forc_conv_thr'] 
+    input_data['control'].pop('stress', None)
+    input_data['control'].pop('forces', None)
+    input_data['control'].pop('press_conv_thr', None)
+    input_data['control'].pop('print_every', None)
+    input_data['control'].pop('title', None)
+    input_data['control'].pop('disk_io', None)
+    input_data['control'].pop('etot_conv_thr', None)
+    input_data['control'].pop('max_seconds', None)
+    input_data['control'].pop('wc_collect', None)
 
-    input_data['system']['ecutwfc'] = float(parsed_data['basis']['ecutwfc'])
+    input_data['control'].pop('pseudo_dir', None)
+    input_data['control'].pop('verbosity', None)
+
+
+    input_data['system']['ecutwfc'] = 2 * float(parsed_data['basis']['ecutwfc'])
     input_data['system']['input_dft'] = parsed_data['dft']['functional']
 
     if 'electric_field' in parsed_data:
@@ -535,17 +534,71 @@ def _parsed_to_input_data(parsed_data):
             input_data['system']['eamp'] = float(parsed_data['electric_field']['electric_field_amplitude'])
 
     input_data['electrons'] = dict_retyping(parsed_data['electron_control'])
+    input_data['electrons'].pop('max_nstep', None)
+    input_data['electrons'].pop('diago_thr_init', None)
+    input_data['electrons'].pop('diago_cg_maxiter' , None)
+    input_data['electrons'].pop('diago_full_acc' , None)
+    input_data['electrons'].pop('real_space_q' , None)
+    input_data['electrons'].pop('real_space_beta' , None)
+    input_data['electrons'].pop('tq_smoothing' , None)
+    input_data['electrons'].pop('tbeta_smoothing' , None)
+    input_data['electrons'].pop('diago_ppcg_maxiter', None)
+
+    input_data['electrons'].pop('mixing_mode', None)
+    input_data['electrons'].pop('mixing_ndim', None)
+    input_data['electrons'].pop('diagonalization', None)
+    input_data['electrons']['conv_thr'] = 2 * input_data['electrons']['conv_thr']
 
     return input_data
 
 
-def make_input_bands(xml_file, nbands, kpoints=None, koffsets=None):
+def make_input(xml_file, kind_of_input='scf', nbands=0, kpoints=None, koffsets=None, 
+               del_left=None,
+               del_right=None,
+               spacing=None,
+               spacing_loc=34.0,
+               shift=0.0,
+               center_z=False,
+               esm=False,
+               d2=False,
+               wf_collect=True,
+               outdir=None,
+               prefix=None):
 
     atoms_in, data_in = parse_xml_input(xml_file)
     atoms_out, data_out = parse_xml_output(xml_file)
     input_data = _parsed_to_input_data(data_in)
 
-    input_data['system']['nbnd'] = nbands
+    if del_right is not None:
+        del atoms_out[atoms_out.positions[:, 2] > del_right]
+
+    if del_left is not None:
+        del atoms_out[atoms_out.positions[:, 2] < del_left]
+
+    if spacing is not None:
+        atoms_out.arrays['positions'][atoms_out.positions[:, 2] > spacing_loc]+= np.array([0, 0, spacing])
+
+        cell = atoms_out.get_cell() 
+        cell[2, 2] += spacing
+        atoms_out.set_cell(cell)
+        print(atoms_out.get_cell())
+        atoms_out.pbc = (True, True, False)
+        view(atoms_out)
+
+    if np.abs(shift) > 0.0:
+        atoms_out.arrays['positions'] += np.array([0, 0, shift])
+
+
+    if center_z:
+        min_z = np.min(atoms_out.arrays['positions'][:, 2]) 
+        max_z = np.max(atoms_out.arrays['positions'][:, 2]) 
+        shift_z = -0.5 * (max_z + min_z)
+        atoms_out.arrays['positions'] += np.array([0, 0, shift_z])
+
+    if kind_of_input == 'bands':
+        print(data_out)
+        input_data['system']['nbnd'] = nbands + int(data_out['band_structure']['nbnd'])
+        input_data['control']['calculation'] = 'bands'
 
     flag = False
 
@@ -553,24 +606,57 @@ def make_input_bands(xml_file, nbands, kpoints=None, koffsets=None):
         kpoints_file = kpoints
         kpoints = None
         flag = True
-
-    if kpoints is None:
-        kpoints = tuple(data_in['k_points'][:3])
+    else:
+        if kpoints is None:
+            kpoints = tuple(data_in['k_points'][:3])
 
     if koffsets is None:
-        koffsets = tuple(data_in['k_points'][3:])
+        if 'k_points' in data_in:
+             koffsets = tuple(data_in['k_points'][3:])
+        else:
+             koffsets = (0, 0, 0)
 
-    output_file = 'espresso_' + input_data['control']['prefix'] + '.pwi'
+    if esm:
+        input_data['control'].pop('tefield', None)
+        input_data['control'].pop('dipfield', None)
+        input_data['system'].pop('edir', None)
+        input_data['system'].pop('emaxpos', None)
+        input_data['system'].pop('eopreg', None)
+        input_data['system'].pop('eamp', None)
+
+        input_data['system']['assume_isolated'] = 'esm'
+        input_data['system']['esm_bc'] = 'bc1'
+
+    if d2:
+        input_data['control'].pop('tefield', None)
+        input_data['control'].pop('dipfield', None)
+        input_data['system'].pop('edir', None)
+        input_data['system'].pop('emaxpos', None)
+        input_data['system'].pop('eopreg', None)
+        input_data['system'].pop('eamp', None)
+
+        input_data['system']['assume_isolated'] = '2D'
+
+    input_data['control']['wf_collect'] = wf_collect
+
+    if outdir is not None:
+        input_data['control']['outdir'] = outdir
+
+    if prefix is not None:
+        input_data['control']['prefix'] = prefix
+
+    output_file = input_data['control']['prefix'] + '_' + kind_of_input + xstr(spacing) + '.pwi'
+    input_data['control']['prefix'] = input_data['control']['prefix']  + xstr(spacing)
+
+
     with open(output_file, 'w') as fd:
-        espresso.write_espresso_in(fd, atoms_in,
+        espresso.write_espresso_in(fd, atoms_out,
                                    input_data=input_data,
                                    pseudopotentials=data_in['atomic_species'],
                                    kspacing=None,
                                    koffset=koffsets,
                                    kpts=kpoints)
 
-    outdir = data_in['control_variables']['outdir']
-    prefix = data_in['control_variables']['prefix']
 
     if flag:
         with open(kpoints_file, 'r') as fd:
@@ -584,9 +670,7 @@ def make_input_bands(xml_file, nbands, kpoints=None, koffsets=None):
            if line.lower().startswith('k_points'):
                ind = j
                continue
-        print(espresso_file)
-        print(len(espresso_file))
-        print(ind)
+
         if ind >= 0:
             del espresso_file[ind+1]
             del espresso_file[ind]
@@ -595,12 +679,10 @@ def make_input_bands(xml_file, nbands, kpoints=None, koffsets=None):
         espresso_file += kpoints 
         espresso_file = ''.join(espresso_file)
 
-        print(espresso_file)
-
         with open(output_file, 'w') as fd:
            fd.write(espresso_file)
 
-    return outdir, prefix
+    return outdir, prefix, atoms_out
 
 
 if __name__ == '__main__':
@@ -609,7 +691,6 @@ if __name__ == '__main__':
     xml_file_name = '/home/mk//si_slab.xml'
 
     n = make_kgrids(xml_file_name, k_points=[5, 4, 1], q_shifts=[0.001, 0.0, 0.0])
-    print(n)
     # outdir, prefix = make_input_bands(xml_file_name, 300)
     # make_pw2bgw(outdir, prefix)
 
