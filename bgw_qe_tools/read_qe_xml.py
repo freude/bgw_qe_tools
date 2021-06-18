@@ -641,9 +641,13 @@ def make_input(xml_file, kind_of_input='scf', nbands=0, kpoints=None, koffsets=N
 
     if outdir is not None:
         input_data['control']['outdir'] = outdir
+    else:
+        outdir = input_data['control']['outdir'] 
 
     if prefix is not None:
         input_data['control']['prefix'] = prefix
+    else:
+        prefix = input_data['control']['prefix'] 
 
     output_file = input_data['control']['prefix'] + '_' + kind_of_input + xstr(spacing) + '.pwi'
     input_data['control']['prefix'] = input_data['control']['prefix']  + xstr(spacing)
