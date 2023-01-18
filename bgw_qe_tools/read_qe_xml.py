@@ -692,9 +692,9 @@ def make_input(xml_file, kind_of_input='scf', nbands=0, kpoints=None, koffsets=N
 if __name__ == '__main__':
     # file_name = '/home/mk/data-file-schema.xml'
     # file_name = '/home/mk/tetracene_opt2.xml'
-    xml_file_name = '/home/mk//si_slab.xml'
+    #xml_file_name = '/home/mk//si_slab.xml'
 
-    n = make_kgrids(xml_file_name, k_points=[5, 4, 1], q_shifts=[0.001, 0.0, 0.0])
+    #n = make_kgrids(xml_file_name, k_points=[5, 4, 1], q_shifts=[0.001, 0.0, 0.0])
     # outdir, prefix = make_input_bands(xml_file_name, 300)
     # make_pw2bgw(outdir, prefix)
 
@@ -721,3 +721,12 @@ if __name__ == '__main__':
     # plt.plot(etot)
     # plt.plot(etot1)
     # plt.show()
+    file_name = '/scratch/zu57/mk4729/qe/tc_slab_short/tmp_relax_60_4_3/relax_60_4_3.save/data-file-schema.xml'
+    file_name = '/scratch/zu57/mk4729/qe/si_long/tmp_si_slab_80_4_3_1/si_slab_80_4_3_1.save/data-file-schema.xml'
+    file_name = '/scratch/zu57/mk4729/qe/graphene_allotrope/tmp/graphene_hyb.save/data-file-schema.xml'
+    file_name = '/scratch/zu57/mk4729/qe/si/si6/si6.save/data-file-schema.xml'
+    file_name = '/scratch/zu57/mk4729/qe/si/si3/si3.save/data-file-schema.xml'
+    file_name = '/scratch/mo5/mk4729/qe/si/si10/si10.save/data-file-schema.xml'
+    atoms, ecut, atoms_list = traj_from_qe_xml(file_name)
+    #atoms, atoms_list = parse_xml_output(file_name)
+    view(atoms_list)
